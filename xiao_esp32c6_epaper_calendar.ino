@@ -257,14 +257,15 @@ String fetchICS(const char* url) {
   String payload = "";
 
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setTimeout(10000);
+  http.setTimeout(5000);  // 5초 타임아웃 (절전: 실패 시 빠른 복귀)
+  http.setConnectTimeout(3000);  // 연결 타임아웃 3초
 
   if (http.begin(url)) {
     int httpCode = http.GET();
-    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY || httpCode == HTTP_CODE_FOUND) {
+    if (httpCode == HTTP_CODE_OK) {
       payload = http.getString();
     } else {
-      Serial.printf("[HTTP] GET %s → code: %d\n", url, httpCode);
+      Serial.printf("[HTTP] GET → code: %d\n", httpCode);
     }
     http.end();
   } else {
@@ -439,8 +440,9 @@ bool connectWiFi() {
   Serial.printf("WiFi 연결 중: %s", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
+  // 절전: 연결 타임아웃 10초 (기존 20초)
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
     Serial.print(".");
     attempts++;
@@ -454,6 +456,8 @@ bool connectWiFi() {
     return true;
   } else {
     Serial.println("WiFi 연결 실패!");
+    WiFi.disconnect(true);  // WiFi 완전 해제 (전력 누수 방지)
+    WiFi.mode(WIFI_OFF);
     return false;
   }
 }
@@ -475,6 +479,44 @@ bool syncTime() {
   return true;
 }
 
+// ====== WiFi 절전 해제 ======
+void powerOffWiFi() {
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  Serial.println("WiFi OFF (절전)");
+}
+
+// ====== E-Paper 전원 차단 (슬립 중 누설 전류 감소) ======
+void powerOffEPaper() {
+  // RST 핀을 LOW로 설정하여 e-paper 모듈 전원 차단
+  pinMode(EPD_RST_PIN, OUTPUT);
+  digitalWrite(EPD_RST_PIN, LOW);
+  Serial.println("E-Paper 전원 차단 (절전)");
+}
+
+// ====== 딥슬립 진입 ======
+void enterDeepSleep() {
+  Serial.printf("딥슬립 진입 (%d분 후 갱신)\n", REFRESH_INTERVAL_MIN);
+
+  // WiFi 끄기
+  powerOffWiFi();
+
+  // E-Paper 전원 차단
+  powerOffEPaper();
+
+  // 불필요한 GPIO 플로팅 방지 (누설 전류 감소)
+  // SPI 핀 풀다운
+  pinMode(18, INPUT_PULLDOWN);  // MOSI
+  pinMode(19, INPUT_PULLDOWN);  // SCK
+  pinMode(EPD_CS_PIN, INPUT_PULLDOWN);
+  pinMode(EPD_DC_PIN, INPUT_PULLDOWN);
+  pinMode(EPD_BUSY_PIN, INPUT_PULLDOWN);
+
+  // 딥슬립 타이머 설정
+  esp_sleep_enable_timer_wakeup((uint64_t)REFRESH_INTERVAL_MIN * 60 * 1000000ULL);
+  esp_deep_sleep_start();
+}
+
 // ====== 메인 일정 갱신 ======
 void refreshCalendar() {
   eventCount = 0;
@@ -482,6 +524,7 @@ void refreshCalendar() {
 
   Serial.printf("오늘: %d-%02d-%02d\n", todayYear, todayMonth, todayDay);
 
+  int failCount = 0;
   for (int i = 0; i < NUM_CALENDARS; i++) {
     Serial.printf("캘린더 '%s' 다운로드 중...\n", calendars[i].name);
     String icsData = fetchICS(calendars[i].url);
@@ -490,7 +533,17 @@ void refreshCalendar() {
       parseICS(icsData, calendars[i].name);
     } else {
       Serial.printf("  → 수신 실패\n");
+      failCount++;
     }
+  }
+
+  // 절전: 모든 캘린더 실패 시 즉시 슬립 (불필요한 WiFi 유지 방지)
+  if (failCount == NUM_CALENDARS) {
+    Serial.println("모든 캘린더 다운로드 실패 → 즉시 슬립");
+    displayError("캘린더 로드 실패");
+    display.hibernate();
+    enterDeepSleep();
+    return;  // 여기 도달 안함
   }
 
   Serial.printf("총 %d개 일정\n", eventCount);
@@ -526,11 +579,8 @@ void setup() {
   // 디스플레이 절전
   display.hibernate();
 
-  Serial.println("완료! 딥슬립에 들어갑니다 (30분 후 갱신)");
-
-  // 30분 딥슬립 후 재부팅하여 자동 갱신
-  esp_sleep_enable_timer_wakeup(30 * 60 * 1000000ULL); // 30분 (마이크로초)
-  esp_deep_sleep_start();
+  // 딥슬립 진입 (WiFi OFF + E-Paper 전원차단 + GPIO 플로팅 방지)
+  enterDeepSleep();
 }
 
 void loop() {
