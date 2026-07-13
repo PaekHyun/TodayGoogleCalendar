@@ -1,0 +1,11 @@
+# IDE
+.pio/
+.vscode/
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (WiFi 비밀번호 포함)
+# secrets.h
