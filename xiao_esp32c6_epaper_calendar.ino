@@ -59,10 +59,10 @@ struct CalendarInfo {
 };
 
 CalendarInfo calendars[] = {
-  { "가족", "https://calendar.google.com/calendar/ical/family03017302093956096654%40group.calendar.google.com/private-7ec71b59793c5c2f8ff80b25ca05f3fe/basic.ics" },
-  { "시연", "https://calendar.google.com/calendar/ical/a47141997bc77a97c42e713b4314a2e7eaadc547444803be2cc03b786c2b7332%40group.calendar.google.com/private-aef1225e13475f3abf502b24659450a2/basic.ics" },
-  { "정민", "https://calendar.google.com/calendar/ical/14a64a755ad42c196bc8c97099ef50b38a942df3e84dad55cee61b660fb4ea68%40group.calendar.google.com/private-f2b26709e58cd496ac70247561deee3e/basic.ics" },
-  { "현",   "https://calendar.google.com/calendar/ical/bbb77a544fcbd38496855f1337132fffd5cd2a0ff20ed1d383ea85954bd8032c%40group.calendar.google.com/private-ad4bce03a9ec4bba92d56e7fa3524c53/basic.ics" },
+  { "calendar1", "https://xxxxx.xxx/calendar1/basic.ics" },
+  { "calendar2", "https://xxxxx.xxx/calendar2/basic.ics" },
+  { "calendar3", "https://xxxxx.xxx/calendar3/basic.ics" },
+  { "calendar4", "https://xxxxx.xxx/calendar4/basic.ics" },
 };
 const int NUM_CALENDARS = 4;
 
@@ -334,13 +334,13 @@ void displayCalendar() {
         // 캘린더 색상 마커 (작은 사각형)
         // 흑백 e-paper이므로 캘린더별 다른 패턴 사용
         int markerX = 82;
-        if (ev.calName == "가족") {
+        if (ev.calName == "calendar1") {
           display.fillRect(markerX, y - 8, 6, 8, GxEPD_BLACK);
-        } else if (ev.calName == "시연") {
+        } else if (ev.calName == "calendar2") {
           display.drawRect(markerX, y - 8, 6, 8, GxEPD_BLACK);
-        } else if (ev.calName == "정민") {
+        } else if (ev.calName == "calendar3") {
           display.fillRect(markerX, y - 8, 6, 4, GxEPD_BLACK);
-        } else if (ev.calName == "현") {
+        } else if (ev.calName == "calendar4") {
           display.fillRect(markerX, y - 4, 6, 4, GxEPD_BLACK);
         }
 
@@ -396,25 +396,25 @@ void displayCalendar() {
     display.setFont(&FreeSans9pt7b);
     int legendX = W - 160;
     int legendY = H - 4;
-    // 가족
+    // calendar1
     display.fillRect(legendX, legendY - 8, 6, 8, GxEPD_BLACK);
     display.setCursor(legendX + 8, legendY);
-    display.print("가족");
-    // 시연
+    display.print("Cal1");
+    // calendar2
     legendX += 38;
     display.drawRect(legendX, legendY - 8, 6, 8, GxEPD_BLACK);
     display.setCursor(legendX + 8, legendY);
-    display.print("시연");
-    // 정민
+    display.print("Cal2");
+    // calendar3
     legendX += 38;
     display.fillRect(legendX, legendY - 8, 6, 4, GxEPD_BLACK);
     display.setCursor(legendX + 8, legendY);
-    display.print("정민");
-    // 현
+    display.print("Cal3");
+    // calendar4
     legendX += 38;
     display.fillRect(legendX, legendY - 4, 6, 4, GxEPD_BLACK);
     display.setCursor(legendX + 8, legendY);
-    display.print("현");
+    display.print("Cal4");
 
   } while (display.nextPage());
 }
