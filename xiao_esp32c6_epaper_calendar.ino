@@ -496,13 +496,10 @@ void refreshCalendar() {
     }
   }
 
-  // 절전: 모든 캘린더 실패 시 즉시 슬립
+  // 절전: 모든 캘린더 실패 시에도 표시 후 슬립
   if (failCount == NUM_CALENDARS) {
-    Serial.println("모든 캘린더 다운로드 실패 → 즉시 슬립");
-    displayError("캘린더 로드 실패");
-    display.hibernate();
-    enterDeepSleep();
-    return;
+    Serial.println("모든 캘린더 다운로드 실패");
+    // 빈 화면이라도 표시 (에러 메시지 포함)
   }
 
   Serial.printf("총 %d개 일정\n", eventCount);
@@ -516,26 +513,26 @@ void setup() {
   while (!Serial && millis() < 3000) { delay(10); }
   Serial.println("\n=== Google Calendar E-Paper Display ===");
 
-  // 디스플레이 초기화
-  display.init(115200, true, 50, false);
+  // 디스플레이 초기화 (diagnostic 출력 끄기: baud=0)
+  display.init(0, true, 50, false);
 
   // 한글 폰트 초기화
   u8g2Fonts.begin(display);
 
-  // WiFi 연결
+  // WiFi 연결 (실패 시 30초 대기 후 재부팅)
   if (!connectWiFi()) {
-    displayError("WiFi 연결 실패");
+    displayError("WiFi 연결 실패\n30초 후 재시도");
     display.hibernate();
-    enterDeepSleep();
-    return;
+    delay(30000);
+    ESP.restart();
   }
 
-  // NTP 시간 동기화
+  // NTP 시간 동기화 (실패 시 30초 대기 후 재부팅)
   if (!syncTime()) {
-    displayError("시간 동기화 실패");
+    displayError("시간 동기화 실패\n30초 후 재시도");
     display.hibernate();
-    enterDeepSleep();
-    return;
+    delay(30000);
+    ESP.restart();
   }
 
   // 일정 가져와서 표시
