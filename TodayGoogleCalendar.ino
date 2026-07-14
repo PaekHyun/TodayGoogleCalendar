@@ -48,7 +48,7 @@ GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display(
   GxEPD2_370_GDEY037T03(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN)
 );
 
-U8g2_for_Adafruit_GFX u8g2Fonts; // 한글 폰트 렌더러
+U8G2_FOR_ADAFRUIT_GFX u8g2Fonts; // 한글 폰트 렌더러
 
 // ====== 캘린더 설정 ======
 // ★ 이름과 URL을 여기서만 수정하면 마커/범례/표시 모두 자동 반영됩니다
