@@ -23,7 +23,6 @@
 #define ENABLE_GxEPD2_GFX 0
 
 #include <GxEPD2_BW.h>
-#include <GxEPD2_370_GDEY037T03.h> // 3.7" 240x416 UC8253
 #include <U8g2_for_Adafruit_GFX.h>  // 한글 폰트 지원
 
 #include <WiFi.h>
