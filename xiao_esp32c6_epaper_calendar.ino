@@ -15,6 +15,7 @@
  * 필요 라이브러리:
  *   - GxEPD2 (by Jean-Marc Capello)
  *   - Adafruit_GFX
+ *   - U8g2_for_Adafruit_GFX (by oliver)  ← 한글 폰트 지원
  * 
  * 보드 설정: XIAO_ESP32C6 (esp32 by Espressif v2.x+)
  */
@@ -23,11 +24,7 @@
 
 #include <GxEPD2_BW.h>
 #include <GxEPD2_370_GDEY037T03.h> // 3.7" 240x416 UC8253
-#include <Fonts/FreeSans9pt7b.h>
-#include <Fonts/FreeSansBold9pt7b.h>
-#include <Fonts/FreeSansBold12pt7b.h>
-#include <Fonts/FreeSansBold18pt7b.h>
-#include <Fonts/FreeSans12pt7b.h>
+#include <U8g2_for_Adafruit_GFX.h>  // 한글 폰트 지원
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -52,7 +49,10 @@ GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display(
   GxEPD2_370_GDEY037T03(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN)
 );
 
-// ====== Google Calendar ICS URL ======
+U8g2_for_Adafruit_GFX u8g2Fonts; // 한글 폰트 렌더러
+
+// ====== 캘린더 설정 ======
+// ★ 이름과 URL을 여기서만 수정하면 마커/범례/표시 모두 자동 반영됩니다
 struct CalendarInfo {
   const char* name;
   const char* url;
@@ -64,7 +64,7 @@ CalendarInfo calendars[] = {
   { "calendar3", "https://xxxxx.xxx/calendar3/basic.ics" },
   { "calendar4", "https://xxxxx.xxx/calendar4/basic.ics" },
 };
-const int NUM_CALENDARS = 4;
+const int NUM_CALENDARS = sizeof(calendars) / sizeof(calendars[0]);
 
 // ====== 일정 구조체 ======
 struct Event {
@@ -75,12 +75,22 @@ struct Event {
   int    endHour;
   int    endMin;
   bool   allDay;
-  String calName;  // 어느 캘린더인지
+  int    calIndex;  // calendars[] 배열의 인덱스 → 이름 참조용
 };
 
 const int MAX_EVENTS = 30;
 Event events[MAX_EVENTS];
 int    eventCount = 0;
+
+// ====== 캘린더 마커 그리기 (인덱스로 자동 결정) ======
+void drawCalMarker(int x, int y, int calIndex) {
+  switch (calIndex % 4) {
+    case 0: display.fillRect(x, y - 8, 6, 8, GxEPD_BLACK); break;  // ■ 꽉 찬 사각형
+    case 1: display.drawRect(x, y - 8, 6, 8, GxEPD_BLACK); break;  // □ 빈 사각형
+    case 2: display.fillRect(x, y - 8, 6, 4, GxEPD_BLACK); break;  // ▀ 위쪽 반
+    case 3: display.fillRect(x, y - 4, 6, 4, GxEPD_BLACK); break;  // ▄ 아래쪽 반
+  }
+}
 
 // ====== ICS 파싱 유틸리티 ======
 
@@ -105,21 +115,10 @@ void parseDateTime(const String& dtStr, int& year, int& month, int& day, int& ho
 
     // Z结尾면 UTC → KST 변환
     if (dtStr.endsWith("Z")) {
-      // UTC → KST (+9)
-      struct tm t = {0};
-      t.tm_year = year - 1900;
-      t.tm_mon  = month - 1;
-      t.tm_mday = day;
-      t.tm_hour = hour;
-      t.tm_min  = minute;
-      t.tm_sec  = 0;
-      time_t epoch = mktime(&t) - TZ_OFFSET_SEC; // mktime은 로컬로 처리하므로 보정
-      // 사실상: UTC 시간을 struct tm에 넣고 time_t로 변환하려면
-      // 간단히 +9시간
       hour += 9;
       if (hour >= 24) {
         hour -= 24;
-        day += 1; // 다음날로 넘어가면 오늘 일정에서 제외될 것
+        day += 1;
       }
     }
   }
@@ -131,7 +130,7 @@ int todayYear, todayMonth, todayDay;
 void getToday() {
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
-    todayYear  = 2026; todayMonth = 7; todayDay = 13; // 폴백
+    todayYear  = 2026; todayMonth = 7; todayDay = 14; // 폴백
     return;
   }
   todayYear  = timeinfo.tm_year + 1900;
@@ -140,7 +139,7 @@ void getToday() {
 }
 
 // ICS 텍스트에서 오늘 일정 추출
-void parseICS(const String& icsData, const char* calName) {
+void parseICS(const String& icsData, int calIndex) {
   int pos = 0;
   while (pos < (int)icsData.length() && eventCount < MAX_EVENTS) {
     // VEVENT 블록 찾기
@@ -205,11 +204,9 @@ void parseICS(const String& icsData, const char* calName) {
     // 오늘 일정인지 확인
     bool isToday = false;
     if (sAllDay) {
-      // 종일: 시작일~종료일 범위에 오늘이 포함되는지
       if (sYear == todayYear && sMonth == todayMonth && sDay == todayDay) {
         isToday = true;
       }
-      // 여러 날에 걸친 종일 일정
       if (!isToday && sDay <= todayDay && eDay >= todayDay &&
           sMonth == todayMonth && eMonth == todayMonth) {
         isToday = true;
@@ -228,7 +225,7 @@ void parseICS(const String& icsData, const char* calName) {
       events[eventCount].endHour   = eHour;
       events[eventCount].endMin    = eMin;
       events[eventCount].allDay    = sAllDay;
-      events[eventCount].calName   = calName;
+      events[eventCount].calIndex  = calIndex;
       eventCount++;
     }
 
@@ -277,7 +274,6 @@ String fetchICS(const char* url) {
 // ====== E-Paper 표시 ======
 void displayCalendar() {
   display.setRotation(1); // 가로 모드: 416 x 240
-  display.setFont(&FreeSansBold9pt7b);
   display.setTextColor(GxEPD_BLACK);
 
   const int W = display.width();   // 416
@@ -296,31 +292,28 @@ void displayCalendar() {
     snprintf(dateStr, sizeof(dateStr), "%d년 %d월 %d일 (%s)",
              todayYear, todayMonth, todayDay, dayNames[timeinfo.tm_wday]);
 
-    display.setFont(&FreeSansBold18pt7b);
-    int16_t tbx, tby; uint16_t tbw, tbh;
-    display.getTextBounds(dateStr, 0, 0, &tbx, &tby, &tbw, &tbh);
-    display.setCursor(10, 24);
-    display.print(dateStr);
+    u8g2Fonts.setFont(u8g2_font_unifont_t_korean1);
+    u8g2Fonts.setCursor(8, 16);
+    u8g2Fonts.print(dateStr);
 
     // 구분선
-    display.drawLine(0, 30, W, 30, GxEPD_BLACK);
+    display.drawLine(0, 22, W, 22, GxEPD_BLACK);
 
     // ---- 일정 목록 ----
-    int y = 46;
-    const int lineHeight = 22;
-    const int maxVisible = 8; // 화면에 표시 가능한 최대 일정 수
+    int y = 38;
+    const int lineHeight = 20;
+    const int maxVisible = 8;
 
     if (eventCount == 0) {
-      display.setFont(&FreeSans12pt7b);
-      display.setCursor(20, y + 20);
-      display.print("오늘 일정이 없습니다");
+      u8g2Fonts.setFont(u8g2_font_unifont_t_korean1);
+      u8g2Fonts.setCursor(20, y + 10);
+      u8g2Fonts.print("오늘 일정이 없습니다");
     } else {
       int showCount = min(eventCount, maxVisible);
       for (int i = 0; i < showCount; i++) {
         Event& ev = events[i];
 
         // 시간 표시
-        display.setFont(&FreeSans9pt7b);
         char timeBuf[20];
         if (ev.allDay) {
           snprintf(timeBuf, sizeof(timeBuf), "종일");
@@ -328,93 +321,67 @@ void displayCalendar() {
           snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d-%02d:%02d",
                    ev.startHour, ev.startMin, ev.endHour, ev.endMin);
         }
-        display.setCursor(6, y);
-        display.print(timeBuf);
+        u8g2Fonts.setFont(u8g2_font_unifont_t_korean1);
+        u8g2Fonts.setCursor(4, y);
+        u8g2Fonts.print(timeBuf);
 
-        // 캘린더 색상 마커 (작은 사각형)
-        // 흑백 e-paper이므로 캘린더별 다른 패턴 사용
-        int markerX = 82;
-        if (ev.calName == "calendar1") {
-          display.fillRect(markerX, y - 8, 6, 8, GxEPD_BLACK);
-        } else if (ev.calName == "calendar2") {
-          display.drawRect(markerX, y - 8, 6, 8, GxEPD_BLACK);
-        } else if (ev.calName == "calendar3") {
-          display.fillRect(markerX, y - 8, 6, 4, GxEPD_BLACK);
-        } else if (ev.calName == "calendar4") {
-          display.fillRect(markerX, y - 4, 6, 4, GxEPD_BLACK);
-        }
+        // 캘린더 마커 (calIndex로 자동 결정)
+        drawCalMarker(82, y, ev.calIndex);
 
         // 일정 제목
-        display.setFont(&FreeSansBold9pt7b);
-        display.setCursor(92, y);
-        // 제목이 길면 자르기
+        u8g2Fonts.setCursor(92, y);
         String title = ev.summary;
-        if (title.length() > 24) {
-          title = title.substring(0, 23) + "..";
+        if (title.length() > 18) {
+          title = title.substring(0, 17) + "..";
         }
-        display.print(title);
+        u8g2Fonts.print(title);
 
         // 위치 (있으면 다음 줄에 작게)
-        if (ev.location.length() > 0 && y + 14 < H - 10) {
-          display.setFont(&FreeSans9pt7b);
-          display.setCursor(92, y + 14);
+        if (ev.location.length() > 0 && y + 14 < H - 20) {
+          u8g2Fonts.setCursor(92, y + 14);
           String loc = ev.location;
-          if (loc.length() > 24) {
-            loc = loc.substring(0, 23) + "..";
+          if (loc.length() > 18) {
+            loc = loc.substring(0, 17) + "..";
           }
-          display.print(loc);
+          u8g2Fonts.print(loc);
           y += lineHeight + 14;
         } else {
           y += lineHeight;
         }
 
         // 구분선 (일정 사이)
-        if (i < showCount - 1 && y < H - 10) {
-          display.drawFastHLine(6, y - 6, W - 12, GxEPD_BLACK);
+        if (i < showCount - 1 && y < H - 20) {
+          display.drawFastHLine(4, y - 4, W - 8, GxEPD_BLACK);
         }
       }
 
       // 더 많은 일정이 있으면 안내
       if (eventCount > maxVisible) {
-        display.setFont(&FreeSans9pt7b);
-        display.setCursor(W - 80, H - 6);
+        u8g2Fonts.setFont(u8g2_font_unifont_t_korean1);
+        u8g2Fonts.setCursor(W - 80, H - 6);
         char moreBuf[20];
         snprintf(moreBuf, sizeof(moreBuf), "+%d개 더", eventCount - maxVisible);
-        display.print(moreBuf);
+        u8g2Fonts.print(moreBuf);
       }
     }
 
     // ---- 하단: 업데이트 시간 ----
-    display.setFont(&FreeSans9pt7b);
+    u8g2Fonts.setFont(u8g2_font_unifont_t_korean1);
     char updateStr[30];
-    snprintf(updateStr, sizeof(updateStr), "업데이트 %02d:%02d",
+    snprintf(updateStr, sizeof(updateStr), "%02d:%02d 갱신",
              timeinfo.tm_hour, timeinfo.tm_min);
-    display.setCursor(6, H - 4);
-    display.print(updateStr);
+    u8g2Fonts.setCursor(4, H - 4);
+    u8g2Fonts.print(updateStr);
 
-    // 캘린더 범례
-    display.setFont(&FreeSans9pt7b);
-    int legendX = W - 160;
+    // ---- 하단: 캘린더 범례 (calendars[]에서 자동 생성) ----
+    int legendX = W - 40 * NUM_CALENDARS;
     int legendY = H - 4;
-    // calendar1
-    display.fillRect(legendX, legendY - 8, 6, 8, GxEPD_BLACK);
-    display.setCursor(legendX + 8, legendY);
-    display.print("Cal1");
-    // calendar2
-    legendX += 38;
-    display.drawRect(legendX, legendY - 8, 6, 8, GxEPD_BLACK);
-    display.setCursor(legendX + 8, legendY);
-    display.print("Cal2");
-    // calendar3
-    legendX += 38;
-    display.fillRect(legendX, legendY - 8, 6, 4, GxEPD_BLACK);
-    display.setCursor(legendX + 8, legendY);
-    display.print("Cal3");
-    // calendar4
-    legendX += 38;
-    display.fillRect(legendX, legendY - 4, 6, 4, GxEPD_BLACK);
-    display.setCursor(legendX + 8, legendY);
-    display.print("Cal4");
+    for (int i = 0; i < NUM_CALENDARS; i++) {
+      drawCalMarker(legendX, legendY, i);
+      u8g2Fonts.setCursor(legendX + 8, legendY);
+      u8g2Fonts.print(calendars[i].name);
+      legendX += 40;
+    }
 
   } while (display.nextPage());
 }
@@ -426,12 +393,11 @@ void displayError(const char* msg) {
   display.firstPage();
   do {
     display.fillScreen(GxEPD_WHITE);
-    display.setFont(&FreeSansBold12pt7b);
-    display.setCursor(20, 60);
-    display.print("Error");
-    display.setFont(&FreeSans9pt7b);
-    display.setCursor(20, 85);
-    display.print(msg);
+    u8g2Fonts.setFont(u8g2_font_unifont_t_korean1);
+    u8g2Fonts.setCursor(20, 60);
+    u8g2Fonts.print("오류");
+    u8g2Fonts.setCursor(20, 85);
+    u8g2Fonts.print(msg);
   } while (display.nextPage());
 }
 
@@ -488,7 +454,6 @@ void powerOffWiFi() {
 
 // ====== E-Paper 전원 차단 (슬립 중 누설 전류 감소) ======
 void powerOffEPaper() {
-  // RST 핀을 LOW로 설정하여 e-paper 모듈 전원 차단
   pinMode(EPD_RST_PIN, OUTPUT);
   digitalWrite(EPD_RST_PIN, LOW);
   Serial.println("E-Paper 전원 차단 (절전)");
@@ -498,21 +463,16 @@ void powerOffEPaper() {
 void enterDeepSleep() {
   Serial.printf("딥슬립 진입 (%d분 후 갱신)\n", REFRESH_INTERVAL_MIN);
 
-  // WiFi 끄기
   powerOffWiFi();
-
-  // E-Paper 전원 차단
   powerOffEPaper();
 
   // 불필요한 GPIO 플로팅 방지 (누설 전류 감소)
-  // SPI 핀 풀다운
   pinMode(18, INPUT_PULLDOWN);  // MOSI
   pinMode(19, INPUT_PULLDOWN);  // SCK
   pinMode(EPD_CS_PIN, INPUT_PULLDOWN);
   pinMode(EPD_DC_PIN, INPUT_PULLDOWN);
   pinMode(EPD_BUSY_PIN, INPUT_PULLDOWN);
 
-  // 딥슬립 타이머 설정
   esp_sleep_enable_timer_wakeup((uint64_t)REFRESH_INTERVAL_MIN * 60 * 1000000ULL);
   esp_deep_sleep_start();
 }
@@ -530,20 +490,20 @@ void refreshCalendar() {
     String icsData = fetchICS(calendars[i].url);
     if (icsData.length() > 0) {
       Serial.printf("  → %d bytes 수신\n", icsData.length());
-      parseICS(icsData, calendars[i].name);
+      parseICS(icsData, i);
     } else {
       Serial.printf("  → 수신 실패\n");
       failCount++;
     }
   }
 
-  // 절전: 모든 캘린더 실패 시 즉시 슬립 (불필요한 WiFi 유지 방지)
+  // 절전: 모든 캘린더 실패 시 즉시 슬립
   if (failCount == NUM_CALENDARS) {
     Serial.println("모든 캘린더 다운로드 실패 → 즉시 슬립");
     displayError("캘린더 로드 실패");
     display.hibernate();
     enterDeepSleep();
-    return;  // 여기 도달 안함
+    return;
   }
 
   Serial.printf("총 %d개 일정\n", eventCount);
@@ -555,21 +515,27 @@ void refreshCalendar() {
 void setup() {
   Serial.begin(115200);
   while (!Serial && millis() < 3000) { delay(10); }
-  Serial.println("\n=== Google Calendar E-Power Display ===");
+  Serial.println("\n=== Google Calendar E-Paper Display ===");
 
   // 디스플레이 초기화
   display.init(115200, true, 50, false);
-  display.hibernate();
+
+  // 한글 폰트 초기화
+  u8g2Fonts.begin(display);
 
   // WiFi 연결
   if (!connectWiFi()) {
     displayError("WiFi 연결 실패");
+    display.hibernate();
+    enterDeepSleep();
     return;
   }
 
   // NTP 시간 동기화
   if (!syncTime()) {
     displayError("시간 동기화 실패");
+    display.hibernate();
+    enterDeepSleep();
     return;
   }
 
@@ -579,7 +545,7 @@ void setup() {
   // 디스플레이 절전
   display.hibernate();
 
-  // 딥슬립 진입 (WiFi OFF + E-Paper 전원차단 + GPIO 플로팅 방지)
+  // 딥슬립 진입
   enterDeepSleep();
 }
 

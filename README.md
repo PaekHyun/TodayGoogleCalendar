@@ -47,6 +47,7 @@ Arduino IDE → 스케치 → 라이브러리 포함하기 → 라이브러리 �
 |-----------|--------|------|
 | **GxEPD2** | Jean-Marc Capello | E-Paper 디스플레이 드라이버 |
 | **Adafruit GFX Library** | Adafruit | 그래픽 기반 라이브러리 |
+| **U8g2_for_Adafruit_GFX** | Oliver | 한글 폰트 렌더링 |
 
 ### 3. WiFi 설정
 
@@ -86,16 +87,26 @@ GPIO 플로팅 방지 → 딥슬립 → N분 후 반복
 | **GPIO 풀다운** | 슬립 전 SPI/제어 핀 INPUT_PULLDOWN | 플로팅 핀 누설 전류 방지 |
 | **전체 실패 시 즉시 슬립** | 4개 캘린더 모두 실패하면 바로 슬립 | 불필요한 WiFi 유지 방지 |
 
-## 캘린더 범례 (E-Paper 하단)
+## 캘린더 설정
 
-흑백 e-paper이므로 캘린더별 다른 마커 패턴으로 구분합니다:
+캘린더 이름과 ICS URL은 스케치 상단 `calendars[]` 배열에서 설정합니다.
+이름을 변경하면 마커와 범례에도 자동 반영됩니다:
 
-| 캘린더 | 마커 |
-|--------|------|
-| calendar1 | ■ (꽉 찬 사각형) |
-| calendar2 | □ (빈 사각형) |
-| calendar3 | ▀ (위쪽 반) |
-| calendar4 | ▄ (아래쪽 반) |
+```cpp
+CalendarInfo calendars[] = {
+  { "가족", "https://calendar.google.com/.../basic.ics" },
+  { "시연", "https://calendar.google.com/.../basic.ics" },
+  { "정민", "https://calendar.google.com/.../basic.ics" },
+  { "현",   "https://calendar.google.com/.../basic.ics" },
+};
+```
+
+| 캘린더 인덱스 | 마커 |
+|--------------|------|
+| calendar[0] | ■ (꽉 찬 사각형) |
+| calendar[1] | □ (빈 사각형) |
+| calendar[2] | ▀ (위쪽 반) |
+| calendar[3] | ▄ (아래쪽 반) |
 
 ## 화면 레이아웃 (가로 모드 416×240)
 
@@ -113,7 +124,7 @@ GPIO 플로팅 방지 → 딥슬립 → N분 후 반복
 │ 14:00-15:30  ▄ 학원                       │
 │                                          │
 │                                          │
-│ 업데이트 19:25  ■Cal1 □Cal2 ▀Cal3 ▄Cal4   │
+│ 09:23 갱신      ■가족 □시연 ▀정민 ▄현     │
 └──────────────────────────────────────────┘
 ```
 
