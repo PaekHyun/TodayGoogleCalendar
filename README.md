@@ -1,32 +1,32 @@
-# Google Calendar → XIAO ESP32C6 → WeAct 3.7" E-Paper
+# Google Calendar → nanoESP32-C6 → WeAct 3.7" E-Paper
 
-XIAO ESP32C6에서 Google Calendar ICS를 가져와 WeAct 3.7인치 e-paper에 오늘 일정을 표시하는 프로젝트입니다.
+nanoESP32-C6에서 Google Calendar ICS를 가져와 WeAct 3.7인치 e-paper에 오늘 일정을 표시하는 프로젝트입니다.
 
 ## 하드웨어
 
 | 부품 | 모델 |
 |------|------|
-| MCU | Seeed Studio XIAO ESP32C6 |
+| MCU | [nanoESP32-C6](https://github.com/wuxx/nanoESP32-C6) (MuseLab, ESP32-C6-WROOM-1) |
 | 디스플레이 | WeAct 3.7" E-Paper Module (GDEY037T03, 240×416, UC8253) |
-| 배터리 | 3.7V 리튬배터리 (XIAO BAT 핀 또는 5V USB) |
+| 배터리 | 3.7V 리튬배터리 (10000mAh) |
 
 ## 배선도
 
 ```
-XIAO ESP32C6          WeAct 3.7" E-Paper
-─────────────          ──────────────────
+nanoESP32-C6           WeAct 3.7" E-Paper
+─────────────           ──────────────────
 3V3            ──────→ VCC
 GND            ──────→ GND
-D10 (MOSI/18)  ──────→ DIN (SDA/MOSI)
-D8  (SCK/19)   ──────→ CLK (SCK)
-D0  (CS/0)     ──────→ CS
-D1  (GPIO1)    ──────→ DC
-D2  (GPIO2)    ──────→ RST (RES)
-D3  (GPIO3)    ──────→ BUSY
+GPIO4  (MOSI)  ──────→ DIN (SDA/MOSI)
+GPIO5  (SCK)   ──────→ CLK (SCK)
+GPIO6  (CS)    ──────→ CS
+GPIO7  (DC)    ──────→ DC
+GPIO0  (RST)   ──────→ RST (RES)
+GPIO1  (BUSY)  ──────→ BUSY
 ```
 
-> **참고**: XIAO ESP32C6의 SPI 핀은 D8(SCK), D9(MISO), D10(MOSI) 입니다.
-> MISO는 e-paper 통신에 사용하지 않으므로 연결하지 않아도 됩니다.
+> **참고**: nanoESP32-C6는 ESP32-C6-WROOM-1 모듈 기반으로, GPIO 0~15, 18~21 등을 사용할 수 있습니다.
+> GPIO12, GPIO13은 내부 플래시 접근용이므로 사용하지 마세요.
 
 ## 소프트웨어 설정
 
@@ -37,7 +37,7 @@ D3  (GPIO3)    ──────→ BUSY
    https://espressif.github.io/arduino-esp32/package_esp32_index.json
    ```
 2. 툴 → 보드 → 보드 매니저 → `esp32` 검색 후 설치 (v2.0.8+)
-3. 보드 선택: **XIAO_ESP32C6**
+3. 보드 선택: **ESP32C6 Dev Module**
 
 ### 2. 라이브러리 설치
 
@@ -59,9 +59,29 @@ Arduino IDE → 스케치 → 라이브러리 포함하기 → 라이브러리 �
 #define REFRESH_INTERVAL_MIN  30   // 새로고침 주기 (분)
 ```
 
-### 4. 업로드
+### 4. 캘린더 설정
 
-1. USB-C 케이블로 XIAO ESP32C6 연결
+`TodayGoogleCalendar.ino` 상단의 `calendars[]` 배열에 Google Calendar 비공개 ICS URL을 입력하세요:
+
+```cpp
+CalendarInfo calendars[] = {
+  { "가족", "https://calendar.google.com/calendar/ical/.../basic.ics" },
+  { "시연", "https://calendar.google.com/calendar/ical/.../basic.ics" },
+  { "정민", "https://calendar.google.com/calendar/ical/.../basic.ics" },
+  { "현",   "https://calendar.google.com/calendar/ical/.../basic.ics" },
+};
+```
+
+| 캘린더 인덱스 | 마커 |
+|--------------|------|
+| calendar[0] | ■ (꽉 찬 사각형) |
+| calendar[1] | □ (빈 사각형) |
+| calendar[2] | ▀ (위쪽 반) |
+| calendar[3] | ▄ (아래쪽 반) |
+
+### 5. 업로드
+
+1. USB-C 케이블로 nanoESP32-C6 연결 (CH343 USB 포트 사용)
 2. 올바른 포트 선택
 3. 업로드 버튼 클릭
 
@@ -87,32 +107,11 @@ GPIO 플로팅 방지 → 딥슬립 → N분 후 반복
 | **GPIO 풀다운** | 슬립 전 SPI/제어 핀 INPUT_PULLDOWN | 플로팅 핀 누설 전류 방지 |
 | **전체 실패 시 즉시 슬립** | 4개 캘린더 모두 실패하면 바로 슬립 | 불필요한 WiFi 유지 방지 |
 
-## 캘린더 설정
-
-캘린더 이름과 ICS URL은 스케치 상단 `calendars[]` 배열에서 설정합니다.
-이름을 변경하면 마커와 범례에도 자동 반영됩니다:
-
-```cpp
-CalendarInfo calendars[] = {
-  { "가족", "https://calendar.google.com/.../basic.ics" },
-  { "시연", "https://calendar.google.com/.../basic.ics" },
-  { "정민", "https://calendar.google.com/.../basic.ics" },
-  { "현",   "https://calendar.google.com/.../basic.ics" },
-};
-```
-
-| 캘린더 인덱스 | 마커 |
-|--------------|------|
-| calendar[0] | ■ (꽉 찬 사각형) |
-| calendar[1] | □ (빈 사각형) |
-| calendar[2] | ▀ (위쪽 반) |
-| calendar[3] | ▄ (아래쪽 반) |
-
 ## 화면 레이아웃 (가로 모드 416×240)
 
 ```
 ┌──────────────────────────────────────────┐
-│ 2026년 7월 13일 (월)                      │
+│ 2026년 7월 15일 (수)                      │
 │──────────────────────────────────────────│
 │ 09:00-10:30  ■ 팀 미팅                    │
 │              회의실 A                      │
@@ -124,7 +123,7 @@ CalendarInfo calendars[] = {
 │ 14:00-15:30  ▄ 학원                       │
 │                                          │
 │                                          │
-│ 09:23 갱신      ■가족 □시연 ▀정민 ▄현     │
+│ 11:28 갱신      ■가족 □시연 ▀정민 ▄현     │
 └──────────────────────────────────────────┘
 ```
 

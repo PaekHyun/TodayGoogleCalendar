@@ -1,23 +1,24 @@
 /*
- * Google Calendar → XIAO ESP32C6 → WeAct 3.7" E-Paper
+ * Google Calendar → nanoESP32-C6 → WeAct 3.7" E-Paper
  * 오늘 일정을 4개 캘린더에서 가져와 e-paper에 표시
  * 
- * 하드웨어 연결 (XIAO ESP32C6 → e-paper):
- *   D10 (MOSI/GPIO18) → DIN (SDA)
- *   D8  (SCK/GPIO19)  → CLK (SCK)
- *   D1  (GPIO1)        → DC
- *   D2  (GPIO2)        → RST (RES)
- *   D3  (GPIO3)        → BUSY
- *   D0  (GPIO0/CS)     → CS
- *   3V3                → VCC
- *   GND                → GND
+ * 하드웨어 연결 (nanoESP32-C6 → e-paper):
+ *   GPIO4  (MOSI) → DIN (SDA)
+ *   GPIO5  (SCK)  → CLK (SCK)
+ *   GPIO7  (DC)   → DC
+ *   GPIO0  (RST)  → RST (RES)
+ *   GPIO1  (BUSY) → BUSY
+ *   GPIO6  (CS)   → CS
+ *   3V3            → VCC
+ *   GND            → GND
  * 
  * 필요 라이브러리:
  *   - GxEPD2 (by Jean-Marc Capello)
  *   - Adafruit_GFX
  *   - U8g2_for_Adafruit_GFX (by oliver)  ← 한글 폰트 지원
  * 
- * 보드 설정: XIAO_ESP32C6 (esp32 by Espressif v2.x+)
+ * 보드 설정: ESP32C6 Dev Module (esp32 by Espressif v2.x+)
+ * 보드: nanoESP32-C6 (MuseLab, https://github.com/wuxx/nanoESP32-C6)
  */
 
 #define ENABLE_GxEPD2_GFX 0
@@ -38,20 +39,13 @@ const char* NTP_SERVER = "pool.ntp.org";
 const long  TZ_OFFSET_SEC = 9 * 3600;   // UTC+9
 const int   TZ_DST_SEC    = 0;
 
-// ====== E-Paper 핀 설정 (XIAO ESP32C6) ======
-// #define EPD_CS_PIN   0   // D0 / GPIO0
-// #define EPD_DC_PIN   1   // D1 / GPIO1
-// #define EPD_RST_PIN  2   // D2 / GPIO2
-// #define EPD_BUSY_PIN 3   // D3 / GPIO3
-
-// ====== E-Paper 핀 설정 (normal ESP32C6) ======
-#define EPD_CS_PIN   6   // D0 / GPIO0
-#define EPD_DC_PIN   7   // D1 / GPIO1
-#define EPD_RST_PIN  0   // D2 / GPIO2
-#define EPD_BUSY_PIN 1   // D3 / GPIO3
-#define EPD_SCK_PIN  5          // sck 
-//#define EPD_MISO_PIN          //
-#define EPD_MOSI_PIN 4         //sda
+// ====== E-Paper 핀 설정 (nanoESP32-C6) ======
+#define EPD_CS_PIN   6   // CS
+#define EPD_DC_PIN   7   // DC
+#define EPD_RST_PIN  0   // RST (RES)
+#define EPD_BUSY_PIN 1   // BUSY
+#define EPD_SCK_PIN  5   // SCK
+#define EPD_MOSI_PIN 4   // MOSI (SDA/DIN)
 
 // [TestEPaper.ino 참고] 주석에 맞춰 핀 번호만 전달하여 객체 생성
 GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display(
@@ -514,8 +508,8 @@ void enterDeepSleep() {
   powerOffWiFi();
   powerOffEPaper();
 
-  pinMode(18, INPUT_PULLDOWN);  // MOSI
-  pinMode(19, INPUT_PULLDOWN);  // SCK
+  pinMode(EPD_MOSI_PIN, INPUT_PULLDOWN);  // MOSI (GPIO4)
+  pinMode(EPD_SCK_PIN, INPUT_PULLDOWN);   // SCK  (GPIO5)
   pinMode(EPD_CS_PIN, INPUT_PULLDOWN);
   pinMode(EPD_DC_PIN, INPUT_PULLDOWN);
   pinMode(EPD_BUSY_PIN, INPUT_PULLDOWN);
