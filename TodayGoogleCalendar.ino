@@ -94,36 +94,58 @@ void drawCalMarker(int x, int y, int calIndex) {
   }
 }
 
+// ====== 배터리 전압 계산 ======
+// VBAT --[200kΩ]-- ADC_PIN --[200kΩ]-- GND 형태의 분배 회로를 가정.
+// analogReadMilliVolts()는 ESP32 코어에 내장된 ADC 보정(esp_adc_cal)을 사용하므로
+// analogRead() 원시값을 직접 계산하는 것보다 정확합니다.
+float readBatteryVoltage() {
+  uint32_t sumMilliVolts = 0;
+  for (int i = 0; i < VBAT_SAMPLES; i++) {
+    sumMilliVolts += analogReadMilliVolts(VBAT_ADC_PIN);
+    delay(1000);
+  }
+  float avgMilliVolts = (float)sumMilliVolts / VBAT_SAMPLES;
+  float vbat = (avgMilliVolts / 1000.0f) * VBAT_DIVIDER_RATIO;
+
+  Serial.printf("VBAT ADC 평균: %.1fmV -> 배터리 전압: %.2fV\n", avgMilliVolts, vbat);
+  return vbat;
+}
+
 // ====== ICS 파싱 유틸리티 ======
 void parseDateTime(const String& dtStr, int& year, int& month, int& day, int& hour, int& minute, bool& isAllDay) {
   isAllDay = false;
   year = 0; month = 0; day = 0; hour = 0; minute = 0;
 
-  if (dtStr.length() == 8) {
-    // 종일 일정 (예: 20260714) -> 시간 변환이 필요 없음
-    isAllDay = true;
-    year  = dtStr.substring(0, 4).toInt();
-    month = dtStr.substring(4, 6).toInt();
-    day   = dtStr.substring(6, 8).toInt();
-  } 
-  else if (dtStr.length() >= 15) {
-    // 일반 일정 (예: 20250210T073000Z)
-    int tempYear  = dtStr.substring(0, 4).toInt();
-    int tempMonth = dtStr.substring(4, 6).toInt();
-    int tempDay   = dtStr.substring(6, 8).toInt();
-    int tempHour  = dtStr.substring(9, 11).toInt();
-    int tempMin   = dtStr.substring(11, 13).toInt();
+  // 공백 및 앞뒤 잡음(개행문자 \r 등) 철저히 제거
+  String cleanStr = dtStr;
+  cleanStr.trim();
+  cleanStr.replace("\r", "");
+  cleanStr.replace("\n", "");
 
-    if (dtStr.endsWith("Z")) {
-      // 표준 구조체를 사용해 안전하게 UTC -> KST (+9시간) 변환 수행
+  if (cleanStr.length() == 8) {
+    // 종일 일정 (예: 20260714)
+    isAllDay = true;
+    year  = cleanStr.substring(0, 4).toInt();
+    month = cleanStr.substring(4, 6).toInt();
+    day   = cleanStr.substring(6, 8).toInt();
+  } 
+  else if (cleanStr.length() >= 15) {
+    // 일반 일정 (예: 20250210T073000Z)
+    int tempYear  = cleanStr.substring(0, 4).toInt();
+    int tempMonth = cleanStr.substring(4, 6).toInt();
+    int tempDay   = cleanStr.substring(6, 8).toInt();
+    int tempHour  = cleanStr.substring(9, 11).toInt();
+    int tempMin   = cleanStr.substring(11, 13).toInt();
+
+    if (cleanStr.endsWith("Z")) {
       struct tm t = {0};
       t.tm_year = tempYear - 1900;
       t.tm_mon  = tempMonth - 1;
       t.tm_mday = tempDay;
-      t.tm_hour = tempHour + 9; // 9시간 더하기
+      t.tm_hour = tempHour + 9; // UTC -> KST (+9시간)
       t.tm_min  = tempMin;
 
-      mktime(&t); // 월말, 년도 전환을 시스템이 자동으로 계산해 줌
+      mktime(&t); 
 
       year   = t.tm_year + 1900;
       month  = t.tm_mon + 1;
@@ -131,7 +153,6 @@ void parseDateTime(const String& dtStr, int& year, int& month, int& day, int& ho
       hour   = t.tm_hour;
       minute = t.tm_min;
     } else {
-      // 'Z'가 없는 로컬 시간 포맷인 경우 그대로 사용
       year   = tempYear;
       month  = tempMonth;
       day    = tempDay;
@@ -164,47 +185,41 @@ void parseICS(const String& icsData, int calIndex) {
 
     String vevent = icsData.substring(veventStart, veventEnd);
 
-    // SUMMARY 추출
     String summary = "";
-    int sumIdx = vevent.indexOf("SUMMARY:");
-    if (sumIdx >= 0) {
-      int lineEnd = vevent.indexOf('\n', sumIdx);
-      if (lineEnd < 0) lineEnd = vevent.length();
-      summary = vevent.substring(sumIdx + 8, lineEnd);
-      summary.trim();
-    }
-
-    // LOCATION 추출
     String location = "";
-    int locIdx = vevent.indexOf("LOCATION:");
-    if (locIdx >= 0) {
-      int lineEnd = vevent.indexOf('\n', locIdx);
-      if (lineEnd < 0) lineEnd = vevent.length();
-      location = vevent.substring(locIdx + 9, lineEnd);
-      location.trim();
-    }
-
-    // DTSTART 추출
     String dtStart = "";
-    int dsIdx = vevent.indexOf("DTSTART");
-    if (dsIdx >= 0) {
-      int colonIdx = vevent.indexOf(':', dsIdx);
-      int lineEnd = vevent.indexOf('\n', colonIdx);
-      if (lineEnd < 0) lineEnd = vevent.length();
-      dtStart = vevent.substring(colonIdx + 1, lineEnd);
-      dtStart.trim();
+    String dtEnd = "";
+
+    // VEVENT 내부를 줄 단위로 분할하여 파싱
+    int linePos = 0;
+    while (linePos < (int)vevent.length()) {
+      int nextLine = vevent.indexOf('\n', linePos);
+      if (nextLine < 0) nextLine = vevent.length();
+      
+      String line = vevent.substring(linePos, nextLine);
+      line.trim();
+      line.replace("\r", ""); // \r 잔여물 제거
+
+      if (line.startsWith("SUMMARY:")) {
+        summary = line.substring(8);
+      } else if (line.startsWith("LOCATION:")) {
+        location = line.substring(9);
+      } else if (line.startsWith("DTSTART")) {
+        int colonIdx = line.indexOf(':');
+        if (colonIdx >= 0) dtStart = line.substring(colonIdx + 1);
+      } else if (line.startsWith("DTEND")) {
+        int colonIdx = line.indexOf(':');
+        if (colonIdx >= 0) dtEnd = line.substring(colonIdx + 1);
+      }
+
+      linePos = nextLine + 1;
     }
 
-    // DTEND 추출
-    String dtEnd = "";
-    int deIdx = vevent.indexOf("DTEND");
-    if (deIdx >= 0) {
-      int colonIdx = vevent.indexOf(':', deIdx);
-      int lineEnd = vevent.indexOf('\n', colonIdx);
-      if (lineEnd < 0) lineEnd = vevent.length();
-      dtEnd = vevent.substring(colonIdx + 1, lineEnd);
-      dtEnd.trim();
-    }
+    // 앞뒤 공백 최종 트리밍
+    summary.trim();
+    location.trim();
+    dtStart.trim();
+    dtEnd.trim();
 
     int sYear, sMonth, sDay, sHour, sMin;
     bool sAllDay;
@@ -214,17 +229,14 @@ void parseICS(const String& icsData, int calIndex) {
     bool eAllDay;
     parseDateTime(dtEnd, eYear, eMonth, eDay, eHour, eMin, eAllDay);
 
-    // [정밀 비교 알고리즘]
+    // [일정 판별 및 매칭]
     bool isToday = false;
     
     if (sAllDay) {
-      // 1. 단일 종일 일정: 정확히 오늘 연/월/일이 일치하는가?
       if (sYear == todayYear && sMonth == todayMonth && sDay == todayDay) {
         isToday = true;
       }
-      // 2. 여러 날에 걸친 종일 일정: 오늘이 일정 시작일과 종료일 범위 내에 속하는가?
       else if (sYear <= todayYear && eYear >= todayYear) {
-        // 연도가 같거나 걸쳐있을 때 월/일 단위 정밀 검사
         int todayScore = todayYear * 10000 + todayMonth * 100 + todayDay;
         int startScore = sYear * 10000 + sMonth * 100 + sDay;
         int endScore   = eYear * 10000 + eMonth * 100 + eDay;
@@ -234,7 +246,6 @@ void parseICS(const String& icsData, int calIndex) {
         }
       }
     } else {
-      // 3. 일반 일정: 시작 날짜가 정확히 오늘(연, 월, 일 모두 일치)이어야만 함!
       if (sYear == todayYear && sMonth == todayMonth && sDay == todayDay) {
         isToday = true;
       }
@@ -250,10 +261,13 @@ void parseICS(const String& icsData, int calIndex) {
       events[eventCount].allDay    = sAllDay;
       events[eventCount].calIndex  = calIndex;
       
-      Serial.printf("  >> [추출성공] 일정: %s | 날짜: %04d-%02d-%02d | 시작: %02d:%02d (종일: %s)\n", 
-                    summary.c_str(), sYear, sMonth, sDay, sHour, sMin, sAllDay ? "예" : "아니오");
+      Serial.printf("  >> [추출성공] 캘린더[%d] | 일정: %s | 시작: %02d:%02d (종일: %s)\n", 
+                    calIndex, summary.c_str(), sHour, sMin, sAllDay ? "예" : "아니오");
 
       eventCount++;
+    } else {
+      // 파싱 시도했으나 오늘 일정이 아닌 경우 디버그용 출력 (필요 시 주석 해제)
+      // Serial.printf("  >> [패스] 일정: %s | 날짜: %04d-%02d-%02d\n", summary.c_str(), sYear, sMonth, sDay);
     }
 
     pos = veventEnd + 10;
@@ -303,6 +317,8 @@ void displayCalendar() {
 
   const int W = display.width();   // 416
   const int H = display.height(); // 240
+
+  float vbatVoltage = readBatteryVoltage();
 
   display.setFullWindow();
   display.firstPage();
@@ -418,15 +434,22 @@ void displayCalendar() {
     u8g2Fonts.setCursor(4, H - 4);
     u8g2Fonts.print(updateStr);
 
-    // ---- 하단: 캘린더 범례 ----
+    // ---- 하단: 캘린더 범례 (배터리 전압 표시를 위해 한 줄 위로 이동) ----
     int legendX = W - 40 * NUM_CALENDARS;
-    int legendY = H - 4;
+    int legendY = H - 20;
     for (int i = 0; i < NUM_CALENDARS; i++) {
       drawCalMarker(legendX, legendY, i);
       u8g2Fonts.setCursor(legendX + 8, legendY);
       u8g2Fonts.print(calendars[i].name);
       legendX += 40;
     }
+
+    // ---- 하단 오른쪽: 배터리 전압 ----
+    char battBuf[16];
+    snprintf(battBuf, sizeof(battBuf), "%.2fV", vbatVoltage);
+    int battWidth = u8g2Fonts.getUTF8Width(battBuf);
+    u8g2Fonts.setCursor(W - battWidth - 4, H - 4);
+    u8g2Fonts.print(battBuf);
 
   } while (display.nextPage());
 }
@@ -553,6 +576,10 @@ void setup() {
   while (!Serial && millis() < 3000) { delay(10); }
   Serial.println("\n=== Google Calendar E-Paper Display ===");
 
+  // 배터리 전압 측정용 ADC 설정 (12비트, 0~3.3V 풀레인지)
+  analogReadResolution(12);
+  analogSetPinAttenuation(VBAT_ADC_PIN, ADC_11db);
+
   // [수정 핵심] TestEPaper.ino 처럼 SPI.begin() 호출을 제거합니다.
   // GxEPD2 내부에서 기본 SPI 핀(SCK=19, MOSI=18)을 통해 자동 초기화됩니다.
   SPI.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, EPD_CS_PIN);
@@ -584,10 +611,9 @@ void setup() {
 
   // 일정 가져와서 표시
   refreshCalendar();
-  delay(10000);
+  
   // 디스플레이 절전 및 딥슬립
   display.hibernate();
-  delay(10000);
   enterDeepSleep();
   
 }
