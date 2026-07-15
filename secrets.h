@@ -8,8 +8,8 @@
 #ifndef SECRETS_H
 #define SECRETS_H
 
-#define WIFI_SSID     "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID     "ssid"
+#define WIFI_PASSWORD "password"
 
 // 새로고침 주기 (분)
 #define REFRESH_INTERVAL_MIN 30
