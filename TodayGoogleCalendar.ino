@@ -61,10 +61,10 @@ struct CalendarInfo {
 };
 
 CalendarInfo calendars[] = {
-  { "cal1", "https://calendar.google.com/calendar/ical/basic.ics" },
-  { "cal2", "https://calendar.google.com/calendar/ical/basic.ics" },
-  { "cal3", "https://calendar.google.com/calendar/ical/basic.ics" },
-  { "cal4", "https://calendar.google.com/calendar/ical/basic.ics" },
+  { CAL_NAME_1, CAL_URL_1 },
+  { CAL_NAME_2, CAL_URL_2 },
+  { CAL_NAME_3, CAL_URL_3 },
+  { CAL_NAME_4, CAL_URL_4 },
 };
 const int NUM_CALENDARS = sizeof(calendars) / sizeof(calendars[0]);
 

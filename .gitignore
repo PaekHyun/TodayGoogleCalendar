@@ -7,5 +7,5 @@
 .DS_Store
 Thumbs.db
 
-# Secrets (WiFi 비밀번호 포함)
-# secrets.h
+# Secrets (WiFi 비밀번호, 캘린더 ICS URL 포함)
+secrets.h
