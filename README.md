@@ -2,6 +2,14 @@
 
 nanoESP32-C6에서 Google Calendar ICS를 가져와 WeAct 3.7인치 e-paper에 오늘 일정을 표시하는 프로젝트입니다.
 
+## 사진
+
+| 완성된 모습 | 동작 화면 |
+|:-----------:|:---------:|
+| ![완성된 모습](images/finished.jpg) | ![동작 화면](images/running.jpg) |
+
+> 📸 사진을 추가하려면 `images/` 폴더에 이미지를 넣고 위 경로를 수정하세요.
+
 ## 하드웨어
 
 | 부품 | 모델 |
