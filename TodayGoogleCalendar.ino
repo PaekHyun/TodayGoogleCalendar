@@ -584,7 +584,7 @@ void setup() {
   // GxEPD2 내부에서 기본 SPI 핀(SCK=19, MOSI=18)을 통해 자동 초기화됩니다.
   SPI.begin(EPD_SCK_PIN, -1, EPD_MOSI_PIN, EPD_CS_PIN);
   // [TestEPaper.ino 참고] 디스플레이 초기화
-  display.init(115200, true, 50, false);
+  display.init(115200, true, 5, false);
 
   // 한글 폰트 초기화
   u8g2Fonts.begin(display);
