@@ -563,8 +563,47 @@ void powerOffEPaper() {
   Serial.println("E-Paper 전원 차단 (절전)");
 }
 
+
+// ====== 다음 정시(:00) 또는 정시반(:30)까지 남은 시간(초) 계산 ======
+uint64_t secondsUntilNextHalfHour() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    // 시간 못 가져오면 기존처럼 REFRESH_INTERVAL_MIN 분 뒤로 폴백
+    Serial.println("[슬립계산] 현재 시간 읽기 실패, 기본 간격 사용");
+    return (uint64_t)REFRESH_INTERVAL_MIN * 60;
+  }
+
+  int curMin = timeinfo.tm_min;
+  int curSec = timeinfo.tm_sec;
+
+  int minutesToNext;
+  if (curMin < 30) {
+    minutesToNext = 30 - curMin;
+  } else {
+    minutesToNext = 60 - curMin;
+  }
+
+  uint64_t secondsToNext = (uint64_t)minutesToNext * 60 - curSec;
+
+  // 너무 짧게 자는 것 방지 (예: 정확히 :00 근처에 깬 경우 몇 초 뒤 또 깨는 것 방지)
+  const uint64_t MIN_SLEEP_SEC = 60; // 최소 1분은 자도록
+  if (secondsToNext < MIN_SLEEP_SEC) {
+    secondsToNext += 30 * 60; // 다음다음 정시/정시반으로 미룸
+  }
+
+  Serial.printf("[슬립계산] 현재 %02d:%02d:%02d → %llu초 뒤(%02d:%02d 기준) 깨어남\n",
+                timeinfo.tm_hour, curMin, curSec,
+                secondsToNext,
+                (curMin < 30) ? timeinfo.tm_hour : (timeinfo.tm_hour + 1) % 24,
+                (curMin < 30) ? 30 : 0);
+
+  return secondsToNext;
+}
+
+
+
 // ====== 딥슬립 진입 ======
-void enterDeepSleep() {
+/*void enterDeepSleep() {
   Serial.printf("딥슬립 진입 (%d분 후 갱신)\n", REFRESH_INTERVAL_MIN);
 
   powerOffWiFi();
@@ -577,6 +616,23 @@ void enterDeepSleep() {
   pinMode(EPD_BUSY_PIN, INPUT_PULLDOWN);
 
   esp_sleep_enable_timer_wakeup((uint64_t)REFRESH_INTERVAL_MIN * 60 * 1000000ULL);
+  esp_deep_sleep_start();
+}*/
+
+void enterDeepSleep() {
+  uint64_t sleepSeconds = secondsUntilNextHalfHour();
+  Serial.printf("딥슬립 진입 (%llu초 후 갱신, 정시/정시반 기준)\n", sleepSeconds);
+
+  powerOffWiFi();
+  powerOffEPaper();
+
+  pinMode(EPD_MOSI_PIN, INPUT_PULLDOWN);
+  pinMode(EPD_SCK_PIN, INPUT_PULLDOWN);
+  pinMode(EPD_CS_PIN, INPUT_PULLDOWN);
+  pinMode(EPD_DC_PIN, INPUT_PULLDOWN);
+  pinMode(EPD_BUSY_PIN, INPUT_PULLDOWN);
+
+  esp_sleep_enable_timer_wakeup(sleepSeconds * 1000000ULL);
   esp_deep_sleep_start();
 }
 
