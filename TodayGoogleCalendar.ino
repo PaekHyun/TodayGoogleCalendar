@@ -47,6 +47,11 @@ const int   TZ_DST_SEC    = 0;
 #define EPD_SCK_PIN  5   // SCK
 #define EPD_MOSI_PIN 4   // MOSI (SDA/DIN)
 
+#define VBAT_ADC_PIN        3      // 배터리 측정용 ADC 핀
+#define VBAT_SAMPLES        8      // 평균낼 샘플 수
+#define VBAT_DIVIDER_RATIO  2.0f   // 200kΩ : 200kΩ 분압
+
+
 // [TestEPaper.ino 참고] 주석에 맞춰 핀 번호만 전달하여 객체 생성
 GxEPD2_BW<GxEPD2_370_GDEY037T03, GxEPD2_370_GDEY037T03::HEIGHT> display(
   GxEPD2_370_GDEY037T03(EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN)
@@ -185,8 +190,9 @@ void parseICS(const String& icsData, int calIndex) {
 
     String vevent = icsData.substring(veventStart, veventEnd);
 
+
     String summary = "";
-    String location = "";
+    String location = ""; 
     String dtStart = "";
     String dtEnd = "";
 
@@ -265,6 +271,8 @@ void parseICS(const String& icsData, int calIndex) {
                     calIndex, summary.c_str(), sHour, sMin, sAllDay ? "예" : "아니오");
 
       eventCount++;
+
+      delay(1000);
     } else {
       // 파싱 시도했으나 오늘 일정이 아닌 경우 디버그용 출력 (필요 시 주석 해제)
       // Serial.printf("  >> [패스] 일정: %s | 날짜: %04d-%02d-%02d\n", summary.c_str(), sYear, sMonth, sDay);
@@ -288,6 +296,8 @@ void sortEvents() {
   }
 }
 
+
+
 String fetchICS(const char* url) {
   HTTPClient http;
   String payload = "";
@@ -309,6 +319,49 @@ String fetchICS(const char* url) {
   }
   return payload;
 }
+
+
+
+
+// UTF-8 문자 경계를 지키면서, 주어진 픽셀 폭 안에 들어가도록 자르는 함수
+String truncateToWidth(U8G2_FOR_ADAFRUIT_GFX& fonts, const String& text, int maxWidthPx) {
+  if (fonts.getUTF8Width(text.c_str()) <= maxWidthPx) {
+    return text;  // 안 잘라도 됨
+  }
+
+  String result = "";
+  int i = 0;
+  int len = text.length();
+
+  while (i < len) {
+    // 현재 문자의 바이트 길이 계산 (UTF-8 선두 바이트로 판별)
+    unsigned char c = (unsigned char)text[i];
+    int charLen = 1;
+    if ((c & 0x80) == 0x00) charLen = 1;       // 0xxxxxxx: ASCII
+    else if ((c & 0xE0) == 0xC0) charLen = 2;  // 110xxxxx
+    else if ((c & 0xF0) == 0xE0) charLen = 3;  // 1110xxxx: 한글 대부분 여기
+    else if ((c & 0xF8) == 0xF0) charLen = 4;  // 11110xxx
+
+    if (i + charLen > len) break; // 깨진 데이터 방지
+
+    String candidate = result + text.substring(i, i + charLen) + "..";
+    if (fonts.getUTF8Width(candidate.c_str()) > maxWidthPx) {
+      break; // "..." 붙였을 때 넘치면 여기서 멈춤
+    }
+
+    result += text.substring(i, i + charLen);
+    i += charLen;
+  }
+
+  return result + "..";
+}
+
+
+
+
+
+
+
 
 // ====== E-Paper 표시 ======
 void displayCalendar() {
@@ -362,19 +415,6 @@ void displayCalendar() {
         }
 
 
-        // u8g2Fonts.setFont(u8g2_font_unifont_t_korean2);
-        // u8g2Fonts.setCursor(4, y);
-        // u8g2Fonts.print(timeBuf);
-
-        // drawCalMarker(82, y, ev.calIndex);
-
-        // u8g2Fonts.setCursor(92, y);
-        // String title = ev.summary;
-        // if (title.length() > 18) {
-        //   title = title.substring(0, 17) + "..";
-        // }
-        // u8g2Fonts.print(title);
-
         u8g2Fonts.setFont(u8g2_font_unifont_t_korean2);
 
         // 시간 출력
@@ -392,20 +432,18 @@ void displayCalendar() {
         // 마커 뒤에 10픽셀 띄우고 제목 출력
         u8g2Fonts.setCursor(markerX + 10, y);
 
-        String title = ev.summary;
-        if (title.length() > 18) {
-          title = title.substring(0, 17) + "..";
-        }
+        int availWidth = W - (markerX + 10) - 4;
+        String title = truncateToWidth(u8g2Fonts, ev.summary, availWidth);
+
+
         u8g2Fonts.print(title);
 
 
 
         if (ev.location.length() > 0 && y + 14 < H - 20) {
           u8g2Fonts.setCursor(92, y + 14);
-          String loc = ev.location;
-          if (loc.length() > 18) {
-            loc = loc.substring(0, 17) + "..";
-          }
+          int availWidthLoc = W - 92 - 4;
+          String loc = truncateToWidth(u8g2Fonts, ev.location, availWidthLoc);
           u8g2Fonts.print(loc);
           y += lineHeight + 14;
         } else {
@@ -413,7 +451,8 @@ void displayCalendar() {
         }
 
         if (i < showCount - 1 && y < H - 20) {
-          display.drawFastHLine(4, y - 4, W - 8, GxEPD_BLACK);
+          // display.drawFastHLine(4, y - 4, W - 8, GxEPD_BLACK);
+          display.drawFastHLine(4, y + 5, W - 8, GxEPD_BLACK);
         }
       }
 
@@ -541,6 +580,115 @@ void enterDeepSleep() {
   esp_deep_sleep_start();
 }
 
+
+void processEvent(const String& summary, const String& location,
+                   const String& dtStart, const String& dtEnd, int calIndex) {
+  if (eventCount >= MAX_EVENTS) return;
+
+  int sYear, sMonth, sDay, sHour, sMin;
+  bool sAllDay;
+  parseDateTime(dtStart, sYear, sMonth, sDay, sHour, sMin, sAllDay);
+
+  int eYear, eMonth, eDay, eHour, eMin;
+  bool eAllDay;
+  parseDateTime(dtEnd, eYear, eMonth, eDay, eHour, eMin, eAllDay);
+
+  bool isToday = false;
+  if (sAllDay) {
+    if (sYear == todayYear && sMonth == todayMonth && sDay == todayDay) {
+      isToday = true;
+    } else if (sYear <= todayYear && eYear >= todayYear) {
+      int todayScore = todayYear * 10000 + todayMonth * 100 + todayDay;
+      int startScore = sYear * 10000 + sMonth * 100 + sDay;
+      int endScore   = eYear * 10000 + eMonth * 100 + eDay;
+      if (todayScore >= startScore && todayScore < endScore) isToday = true;
+    }
+  } else {
+    if (sYear == todayYear && sMonth == todayMonth && sDay == todayDay) isToday = true;
+  }
+
+  if (isToday && summary.length() > 0) {
+    events[eventCount].summary   = summary;
+    events[eventCount].location  = location;
+    events[eventCount].startHour = sHour;
+    events[eventCount].startMin  = sMin;
+    events[eventCount].endHour   = eHour;
+    events[eventCount].endMin    = eMin;
+    events[eventCount].allDay    = sAllDay;
+    events[eventCount].calIndex  = calIndex;
+
+    Serial.printf("  >> [추출성공] 캘린더[%d] | 일정: %s | 시작: %02d:%02d (종일: %s)\n",
+                  calIndex, summary.c_str(), sHour, sMin, sAllDay ? "예" : "아니오");
+    eventCount++;
+  }
+}
+
+// String 통째로 만들지 않고, 스트림에서 한 줄씩 읽어 바로 파싱
+bool fetchAndParseICS(const char* url, int calIndex) {
+  HTTPClient http;
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setTimeout(8000);
+  http.setConnectTimeout(3000);
+
+  if (!http.begin(url)) {
+    Serial.println("[HTTP] begin failed");
+    return false;
+  }
+
+  int httpCode = http.GET();
+  if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("[HTTP] GET -> code: %d\n", httpCode);
+    http.end();
+    return false;
+  }
+
+  WiFiClient* stream = http.getStreamPtr();
+
+  bool inEvent = false, sawEndCalendar = false;
+  size_t totalBytes = 0;
+  String summary, location, dtStart, dtEnd;
+
+  unsigned long lastData = millis();
+  while (http.connected() && (millis() - lastData < 8000)) {
+    if (!stream->available()) { delay(2); continue; }
+
+    String line = stream->readStringUntil('\n');
+    lastData = millis();
+    totalBytes += line.length();
+    line.trim();
+    line.replace("\r", "");
+
+    if (line.startsWith("BEGIN:VEVENT")) {
+      inEvent = true;
+      summary = ""; location = ""; dtStart = ""; dtEnd = "";
+    } else if (line.startsWith("END:VEVENT")) {
+      if (inEvent) processEvent(summary, location, dtStart, dtEnd, calIndex);
+      inEvent = false;
+    } else if (inEvent) {
+      if (line.startsWith("SUMMARY:")) summary = line.substring(8);
+      else if (line.startsWith("LOCATION:")) location = line.substring(9);
+      else if (line.startsWith("DTSTART")) {
+        int c = line.indexOf(':'); if (c >= 0) dtStart = line.substring(c + 1);
+      } else if (line.startsWith("DTEND")) {
+        int c = line.indexOf(':'); if (c >= 0) dtEnd = line.substring(c + 1);
+      }
+    } else if (line.startsWith("END:VCALENDAR")) {
+      sawEndCalendar = true;
+    }
+  }
+
+  http.end();
+  Serial.printf("  → %u bytes 스트리밍 처리 (여유힙: %u)\n", totalBytes, ESP.getFreeHeap());
+
+  if (!sawEndCalendar) {
+    Serial.println("  → END:VCALENDAR 못 봄 (스트림 끊김/타임아웃)");
+    return false;
+  }
+  return true;
+}
+
+
+
 // ====== 메인 일정 갱신 ======
 void refreshCalendar() {
   eventCount = 0;
@@ -549,6 +697,8 @@ void refreshCalendar() {
   Serial.printf("오늘: %d-%02d-%02d\n", todayYear, todayMonth, todayDay);
 
   int failCount = 0;
+
+  /*
   for (int i = 0; i < NUM_CALENDARS; i++) {
     Serial.printf("캘린더 '%s' 다운로드 중...\n", calendars[i].name);
     String icsData = fetchICS(calendars[i].url);
@@ -560,6 +710,15 @@ void refreshCalendar() {
       failCount++;
     }
   }
+*/
+  for (int i = 0; i < NUM_CALENDARS; i++) {
+  Serial.printf("캘린더 '%s' 다운로드 중... (여유힙: %u)\n", calendars[i].name, ESP.getFreeHeap());
+  if (!fetchAndParseICS(calendars[i].url, i)) {
+    Serial.printf("  → 수신 실패\n");
+    failCount++;
+    }
+  }
+
 
   if (failCount == NUM_CALENDARS) {
     Serial.println("모든 캘린더 다운로드 실패");
@@ -569,6 +728,12 @@ void refreshCalendar() {
   sortEvents();
   displayCalendar();
 }
+
+
+
+
+
+
 
 // ====== Arduino setup/loop ======
 void setup() {
